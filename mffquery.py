@@ -42,16 +42,17 @@ def main():
         START = "Start Time"
     else:
         START = "Start Time (s)"
-    DURATION = "Duration (ms)"
+    DURATION = "Dur (ms)"
     if args.time:
-        header_line = f"N   \t{LABEL:10}\t{START:25}\t\t{DURATION:<10}"
+        header_line = f"N   \tCODE\t{LABEL:10}\t{START:25}\t\t{DURATION:<6}"
     else:
-        header_line = f"N   \t{LABEL:10}\t{START:15}\t{DURATION:<10}"
-    dash_line = '-'*75
+        header_line = f"N   \tCODE\t{LABEL:10}\t{START:15}\t{DURATION:<6}"
+    dash_line = '-'*80
     print(header_line)
     print(dash_line)
     for event in event_list:
         label = event['label']
+        code = event['code']
         description = event['description']
         if args.time:
             begin_time = event['beginTime']
@@ -60,16 +61,14 @@ def main():
         duration = event['duration']
         if args.time:
             print(
-                f"{count:04}\t{label:10}\t{begin_time:25}\t{duration:<10}"
+                f"{count:04}\t{code:4}\t{label:10}\t{begin_time:25}\t{duration:<6}"
             )
         else:
             print(
-                f"{count:04}\t{label:10}\t{begin_time:15}\t{duration:<10}"
+                f"{count:04}\t{code:4}\t{label:10}\t{begin_time:15}\t{duration:<6}"
             )
 
         count += 1
-        if count > 10:
-            break
 
 
 if __name__ == '__main__':
