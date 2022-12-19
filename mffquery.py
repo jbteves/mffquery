@@ -1,105 +1,136 @@
-""".mff querying tool"""
+import argparse                     # ArgumentParser
+import datetime                     # datetetime
+import glob                         # glob
+import os                           # path.join
+import xml.etree.ElementTree as ET  # parse
 
-from argparse import ArgumentParser
-from datetime import datetime
+PREFIX_EVENT_EGI = '{http://www.egi.com/event_mff}'
+PREFIX_INFO_EGI = '{http://www.egi.com/info_mff}'
 
-import mffpy
+def harvest_event_files(mffname: str) -> list[str]:
+    return glob.glob(os.path.join(mffname, 'Events_*'))
 
+def trim_evt_prefix(s: str) -> str:
+    return s[len(PREFIX_EVENT_EGI):]
 
-VALID_COLUMNS = ('code', 'description', 'label', 'none')
-
-
-def str_to_time(t: str) -> datetime:
-    # Shave off UTC offset
-    t = t[:-6]
-    time_format = '%Y-%m-%dT%H:%M:%S.%f'
-    return datetime.strptime(t, time_format)
-
-
-def dt_to_seconds(t: str, start) -> str:
-    tt = str_to_time(t)
-    dt = tt - start
-    return f"{dt.seconds:03}.{dt.microseconds:06}"
-
+def trim_info_prefix(s: str) -> str:
+    return s[len(PREFIX_INFO_EGI):]
 
 def main():
-    parser = ArgumentParser(description='.mff querying tool')
+    parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--clock',
-        help=(
-            "Use clock time instead of time relative to record start."
-        ),
+        '--datetime',
+        help='Do not convert datetimes into relative milliseconds.',
         action='store_true',
     )
     parser.add_argument(
-        '--number',
+        '--sort_by',
+        default='relative_millis',
         help=(
-            "Number events as the leftmost column."
+            'The column to sort by. The special key "relative_millis" may '
+            'be used to sort by the relative time. Default "relative_millis,"'
+            ' or "beginTime" if the --datetime option is used.'
         ),
-        action='store_true'
-    )
-#    parser.add_argument(
-#        '--csv',
-#        help=(
-#            "Store output in csv file instead of print to standard out."
-#        )
-#    )
-    parser.add_argument(
-        'file',
-        help=".mff file to read events from.",
     )
     parser.add_argument(
-        'column',
+        '--to_csv',
+        default=None,
+        help='File to save output to as a csv. Default None.',
+    )
+    parser.add_argument(
+        'mff',
+        help='The .mff file to parse',
+    )
+    parser.add_argument(
+        'columns',
         help=(
-            "Additional columns to print. "
-            f"Valid values are {VALID_COLUMNS}."
+            'The columns to write out, in the desired order.'
+            'Either relative_millis or beginTime is always written out.'
         ),
         nargs='+',
     )
     args = parser.parse_args()
-    for c in args.column:
-        if c not in VALID_COLUMNS:
-            raise ValueError(
-                f"{c} is not a valid column type. "
-                f"Valid column types are: {VALID_COLUMNS}"
-            )
-    columns_to_add = args.column
-    if 'none' in columns_to_add and len(columns_to_add) != 1:
-        raise ValueError(
-            f"Cannot combine 'none' and other columns {columns_to_add}"
-        )
-    elif 'none' in columns_to_add:
-        add_columns = False
+    time_column = 'relative_millis' if not args.datetime else 'beginTime'
+    args.columns.insert(0, time_column)
+    # Decide if beginTime or relative_millis should be used
+    if args.datetime and args.sort_by == 'relative_millis':
+        sorter = lambda x: x['beginTime']
     else:
-        add_columns = True
-    info = mffpy.Reader(args.file)
-    is_relative = not args.clock
-    add_numbers = args.number
-#    use_stdout = not args.csv
-
-    mff_content = info.get_mff_content()
-    start_time = str_to_time(mff_content['fileInfo']['recordTime'])
-    event_list = mff_content['eventTrack']['event']
-    count = 0
-    for event in event_list:
-        to_print = []
-        if add_numbers:
-            to_print.append(str(count))
-        count += 1
-        # get a time string
-        time_str = event['beginTime']
-        if is_relative:
-            event_time = str_to_time(event['beginTime'])
-            difference = event_time - start_time
-            time = f"{difference.seconds:04}.{difference.microseconds:06}"
-        else:
-            time = time_str
-        to_print.append(time)
-        if add_columns:
-            for col in columns_to_add:
-                to_print.append(event[col])
-        print('\t'.join(to_print))
-
+        sorter = lambda x: x[args.sort_by]
+    event_files = harvest_event_files(args.mff)
+    # Events should be a dictionary, where each key represents an event file,
+    # and each event file has an "events" key and optionally a "trackType"
+    events = {}
+    # Iterate over all event files and find the events
+    for f in event_files:
+        tree = ET.parse(f)
+        root = tree.getroot()
+        # First sub-element tag: 'name', text: the name of the event track
+        name_element = root[0]
+        element_tag = trim_evt_prefix(name_element.tag)
+        if element_tag != 'name':
+            raise ValueError(
+                'Unexpected Tree type: first XML element does not have name'
+            )
+        curr_name = name_element.text
+        events[curr_name] = {}
+        curr_dict = events[curr_name]
+        # Second sub-element should be trackType, but also might not
+        track_element = root[1]
+        element_tag = trim_evt_prefix(track_element.tag)
+        start = 1
+        if element_tag == 'trackType':
+            curr_dict['trackType'] = track_element.text
+            start += 1
+        curr_dict['events'] = []
+        for x in root[start:]:
+            # Iterate over events
+            if trim_evt_prefix(x.tag) != 'event':
+                continue
+            curr_dict['events'].append(
+                {trim_evt_prefix(y.tag): y.text for y in x}
+            )
+    # Harvest all events
+    all_events = []
+    for k, v in events.items():
+        for evt in v['events']:
+            all_events.append(evt)
+    if not args.datetime:
+        # Get the recording start time
+        info_xml = os.path.join(args.mff, "info.xml")
+        info_tree = ET.parse(info_xml)
+        info_root = info_tree.getroot()
+        record_start = None
+        for x in info_root:
+            if trim_info_prefix(x.tag) == 'recordTime':
+                record_start = x.text
+        if not record_start:
+            raise ValueError('Could not find the recording start time.')
+        record_dt = datetime.datetime.fromisoformat(record_start)
+        # Calculate the time in milliseconds between recording and event start
+        for evt in all_events:
+            evt_dt = datetime.datetime.fromisoformat(evt['beginTime'])
+            delta_t = evt_dt - record_dt
+            evt['relative_millis'] = (
+                delta_t.seconds * 1000
+                + delta_t.microseconds // 1000
+            )
+    # Sort the events
+    all_events.sort(key=sorter)
+    # Determine if a delimiter should be a comma or tab
+    delimiter = '\t' if not args.to_csv else ','
+    out_lines = [delimiter.join(args.columns)]
+    for evt in all_events:
+        out_lines.append(delimiter.join(
+            [str(evt[column]) if evt[column] else "" for column in args.columns]
+        ))
+    out_str = '\n'.join(out_lines)
+    # Put into file or stdout
+    if args.to_csv:
+        with open(args.to_csv, 'w') as f:
+            f.write(out_str)
+    else:
+        print(out_str)
 
 if __name__ == '__main__':
     main()
