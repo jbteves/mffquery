@@ -28,6 +28,16 @@ def main():
         nargs=2,
     )
     parser.add_argument(
+        '--unq',
+        metavar='COLUMN',
+        help=(
+            'Count the number of unique values for the given column and '
+            'make a new column indicating the index of unique values '
+            'for the original column value. To display, remember to '
+            'include COLUMN_unq in the final argument set.'
+        ),
+    )
+    parser.add_argument(
         '--datetime',
         help='Do not convert datetimes into relative milliseconds.',
         action='store_true',
@@ -107,6 +117,16 @@ def main():
     if args.repeating:
         for evt in all_events:
             evt[args.repeating[0]] = args.repeating[1]
+    if args.unq:
+        vals = []
+        for evt in all_events:
+            vals.append(evt[args.unq])
+        vals = list(set(vals))
+        vals.sort()
+        val_mapping = {vals[i]: str(i+1) for i in range(len(vals))}
+        unique_col_name = args.unq + '_unq'
+        for evt in all_events:
+            evt[unique_col_name] = val_mapping[evt[args.unq]]
     if not args.datetime:
         # Get the recording start time
         info_xml = os.path.join(args.mff, "info.xml")
