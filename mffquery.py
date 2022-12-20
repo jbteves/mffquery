@@ -19,6 +19,15 @@ def trim_info_prefix(s: str) -> str:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        '--repeating',
+        help=(
+            'Add a repeating column with single repeating value. The first '
+            'argument should be the column name, the second the value.'
+            'Remember to include this column in the final argument set.'
+        ),
+        nargs=2,
+    )
+    parser.add_argument(
         '--datetime',
         help='Do not convert datetimes into relative milliseconds.',
         action='store_true',
@@ -95,6 +104,9 @@ def main():
     for k, v in events.items():
         for evt in v['events']:
             all_events.append(evt)
+    if args.repeating:
+        for evt in all_events:
+            evt[args.repeating[0]] = args.repeating[1]
     if not args.datetime:
         # Get the recording start time
         info_xml = os.path.join(args.mff, "info.xml")
