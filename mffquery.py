@@ -38,6 +38,15 @@ def main():
         ),
     )
     parser.add_argument(
+        '-v',
+        '--filter',
+        help=(
+            'Do not print a row if any columns contain the provided '
+            'substring.'
+        ),
+        nargs='+',
+    )
+    parser.add_argument(
         '--datetime',
         help='Do not convert datetimes into relative milliseconds.',
         action='store_true',
@@ -156,6 +165,17 @@ def main():
         out_lines.append(delimiter.join(
             [str(evt[column]) if evt[column] else "" for column in args.columns]
         ))
+    if args.filter:
+        filtered_lines = []
+        for ol in out_lines:
+            append_line = True
+            for fil in args.filter:
+                if fil in ol:
+                    append_line = False
+                    break
+            if append_line:
+                filtered_lines.append(ol)
+        out_lines = filtered_lines
     out_str = '\n'.join(out_lines)
     # Put into file or stdout
     if args.to_csv:
